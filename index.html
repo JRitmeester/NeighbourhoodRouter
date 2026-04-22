@@ -254,6 +254,11 @@ const palette = [
 const urlParams = new URLSearchParams(window.location.search);
 const gemeenteCode = urlParams.get('gm') || 'GM0150';
 
+// State (moet boven info/legend controls staan die ze in templates gebruiken)
+let buurtenGj = null;
+let wijkenGj = null;
+let displayMode = 'buurten'; // of 'wijken'
+
 // Kaart opzetten
 const map = L.map('map').setView([52.26, 6.19], 11);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -344,9 +349,6 @@ let waypointMarkers = [];
 let currentWaypoints = [];  // inclusief loop-sluiting (eerste == laatste)
 let currentProfile = 'hiking-beta';
 let currentCleanBacktracks = true;
-let buurtenGj = null;
-let wijkenGj = null;
-let displayMode = 'buurten'; // of 'wijken'
 
 legend.onAdd = function () {
   this._div = L.DomUtil.create('div', 'info-panel legend');
