@@ -132,6 +132,37 @@
     line-height: 16px;
   }
   .help-modal .help-close:hover { color: #333; }
+  .rank-sort { margin-bottom: 8px; font-size: 11px; }
+  .rank-sort button {
+    padding: 3px 8px;
+    margin-right: 4px;
+    background: #eee;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .rank-sort button.active { background: #2c7fb8; color: white; border-color: #2c7fb8; }
+  .rank-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 4px;
+  }
+  .rank-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .rank-item:hover { background: #eef5fb; }
+  .rank-item .idx { color: #999; min-width: 24px; text-align: right; }
+  .rank-item .swatch { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #333; flex-shrink: 0; }
+  .rank-item .naam { flex: 1; }
+  .rank-item .km { color: #555; font-variant-numeric: tabular-nums; }
   .loading {
     position: fixed;
     top: 50%; left: 50%;
@@ -147,6 +178,18 @@
 <body>
 <div id="map"></div>
 <div id="loading" class="loading">Contouren laden vanuit PDOK...</div>
+<div id="rankOverlay" class="help-overlay">
+  <div class="help-modal" style="max-width:420px;">
+    <span class="help-close" id="rankClose">&times;</span>
+    <h3>Buurten op omtrek</h3>
+    <div class="rank-sort" id="rankSort">
+      <button data-sort="perimAsc" class="active">Kort → lang</button>
+      <button data-sort="perimDesc">Lang → kort</button>
+      <button data-sort="name">Op naam</button>
+    </div>
+    <div class="rank-list" id="rankList"></div>
+  </div>
+</div>
 <div id="helpOverlay" class="help-overlay">
   <div class="help-modal">
     <span class="help-close" id="helpClose">&times;</span>
@@ -353,6 +396,25 @@ helpControl.onAdd = function () {
   return div;
 };
 helpControl.addTo(map);
+
+// Ranking-knop linksonder
+const rankControl = L.control({ position: 'bottomleft' });
+rankControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'info-panel');
+  div.style.cursor = 'pointer';
+  div.style.padding = '6px 12px';
+  div.style.display = 'flex';
+  div.style.alignItems = 'center';
+  div.style.gap = '6px';
+  div.style.fontWeight = '600';
+  div.innerHTML = '📏 Ranking';
+  L.DomEvent.disableClickPropagation(div);
+  div.addEventListener('click', () => {
+    document.getElementById('rankOverlay').classList.add('show');
+  });
+  return div;
+};
+rankControl.addTo(map);
 
 legendOpener.onAdd = function () {
   const div = L.DomUtil.create('div', 'info-panel');
@@ -569,6 +631,54 @@ function totalDistance(coords) {
   let d = 0;
   for (let i = 1; i < coords.length; i++) d += haversine(coords[i-1], coords[i]);
   return d;
+}
+
+function computePerimeter(geometry) {
+  const ring = getOuterRing(geometry);
+  return totalDistance(ring);
+}
+
+// Selecteer een buurt op de kaart (zelfde gedrag als klikken op polygon)
+function selectBuurtByCode(buurtcode) {
+  if (!geoLayer) return;
+  geoLayer.eachLayer(layer => {
+    if (layer.feature && layer.feature.properties.buurtcode === buurtcode) {
+      selectedBuurtFeature = layer.feature;
+      map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+      action.show(layer.feature);
+    }
+  });
+}
+
+function renderRankList(sortKey) {
+  const list = window._buurtList;
+  if (!list) return;
+  let sorted;
+  if (sortKey === 'perimDesc') {
+    sorted = [...list].sort((a, b) => b.perimeterM - a.perimeterM);
+  } else if (sortKey === 'name') {
+    sorted = [...list].sort((a, b) => a.buurtnaam.localeCompare(b.buurtnaam));
+  } else {
+    sorted = [...list].sort((a, b) => a.perimeterM - b.perimeterM);
+  }
+  const div = document.getElementById('rankList');
+  if (!div) return;
+  div.innerHTML = sorted.map((b, i) => {
+    const w = wijkByCode[b.wijkcode] || { color: '#888', naam: '' };
+    return `<div class="rank-item" data-code="${b.buurtcode}">
+      <span class="idx">${i + 1}.</span>
+      <span class="swatch" style="background:${w.color}"></span>
+      <span class="naam">${b.buurtnaam}<br><small style="color:#888;">${w.naam}</small></span>
+      <span class="km">${(b.perimeterM / 1000).toFixed(2)} km</span>
+    </div>`;
+  }).join('');
+  div.querySelectorAll('.rank-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const code = el.dataset.code;
+      document.getElementById('rankOverlay').classList.remove('show');
+      selectBuurtByCode(code);
+    });
+  });
 }
 
 // Verwijder palindromische sub-trajecten (doodloop-uitstapjes en U-turns).
@@ -883,6 +993,16 @@ async function load() {
   map.fitBounds(geoLayer.getBounds());
   document.getElementById('loading').remove();
   console.log(`${buurtenGj.features.length} buurten, ${wijkenSorted.length} wijken geladen`);
+
+  // Buurten ranken op omtrek; koppel ook aan Leaflet-layer voor snelle selectie
+  window._buurtList = buurtenGj.features.map(f => ({
+    feature: f,
+    buurtcode: f.properties.buurtcode,
+    buurtnaam: f.properties.buurtnaam || '(naamloos)',
+    wijkcode: f.properties.wijkcode,
+    perimeterM: computePerimeter(f.geometry)
+  }));
+  renderRankList('perimAsc');
 }
 
 load().catch(e => {
@@ -890,17 +1010,35 @@ load().catch(e => {
     `<b>Fout bij laden PDOK:</b><br>${e.message}`;
 });
 
-// Help-modal open/close
-(function setupHelp() {
-  const overlay = document.getElementById('helpOverlay');
-  const closeBtn = document.getElementById('helpClose');
-  if (closeBtn) closeBtn.addEventListener('click', () => overlay.classList.remove('show'));
-  if (overlay) overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) overlay.classList.remove('show');
-  });
+// Help- en Ranking-modals open/close
+(function setupOverlays() {
+  function bind(overlayId, closeId) {
+    const overlay = document.getElementById(overlayId);
+    const closeBtn = document.getElementById(closeId);
+    if (closeBtn) closeBtn.addEventListener('click', () => overlay.classList.remove('show'));
+    if (overlay) overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.classList.remove('show');
+    });
+  }
+  bind('helpOverlay', 'helpClose');
+  bind('rankOverlay', 'rankClose');
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') overlay.classList.remove('show');
+    if (e.key === 'Escape') {
+      document.getElementById('helpOverlay').classList.remove('show');
+      document.getElementById('rankOverlay').classList.remove('show');
+    }
   });
+  // Sorteerknoppen in ranking-modal
+  const rankSort = document.getElementById('rankSort');
+  if (rankSort) {
+    rankSort.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        rankSort.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderRankList(btn.dataset.sort);
+      });
+    });
+  }
 })();
 </script>
 </body>
