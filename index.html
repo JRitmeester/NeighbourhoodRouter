@@ -271,9 +271,12 @@ info.onAdd = function () {
 };
 info.update = function (d) {
   if (d) {
+    const tag = d.isWijk
+      ? `<span class="wijk-tag" style="background:${d.wijkColor}">Wijk</span><br>`
+      : `<span class="wijk-tag" style="background:${d.wijkColor}">${d.wijknaam}</span><br>`;
     this._div.innerHTML =
       `<h4>${d.buurtnaam}</h4>
-       <span class="wijk-tag" style="background:${d.wijkColor}">${d.wijknaam}</span><br>
+       ${tag}
        <b>Inwoners:</b> ${(d.aantalInwoners >= 0 ? d.aantalInwoners : 0).toLocaleString('nl-NL')}<br>
        <b>Oppervlakte:</b> ${d.oppervlakteTotaalInHa} ha<br>
        <b>Land:</b> ${d.oppervlakteLandInHa} ha<br>
@@ -286,7 +289,12 @@ info.update = function (d) {
         <input type="text" id="gemeenteSearch" placeholder="bijv. Utrecht, Amsterdam..." autocomplete="off" style="width:100%;margin-top:3px;padding:4px;box-sizing:border-box;border:1px solid #ccc;border-radius:3px;font-size:12px;">
       </label>
       <div id="gemeenteResults" style="margin-top:3px;max-height:200px;overflow-y:auto;border:1px solid #ddd;border-radius:3px;display:none;background:white;"></div>
-      <div style="margin-top:6px;">Beweeg over een buurt voor details.</div>
+      <div style="margin-top:6px;font-size:11px;">
+        Weergave:
+        <label style="margin-right:8px;"><input type="radio" name="mode" value="buurten" ${displayMode === 'buurten' ? 'checked' : ''}> Buurten</label>
+        <label><input type="radio" name="mode" value="wijken" ${displayMode === 'wijken' ? 'checked' : ''}> Wijken</label>
+      </div>
+      <div style="margin-top:6px;">Beweeg over een ${displayMode === 'wijken' ? 'wijk' : 'buurt'} voor details.</div>
       <small style="color:#777;">Bron: PDOK / CBS Wijk- en Buurtkaart 2023.</small>`;
 
     const searchInput = this._div.querySelector('#gemeenteSearch');
@@ -309,6 +317,16 @@ info.update = function (d) {
       if (!this._div.contains(e.target)) resultsDiv.style.display = 'none';
     });
 
+    this._div.querySelectorAll('input[name=mode]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        if (radio.checked) {
+          displayMode = radio.value;
+          renderLayer();
+          info.update();
+        }
+      });
+    });
+
   }
 };
 info.addTo(map);
@@ -326,6 +344,9 @@ let waypointMarkers = [];
 let currentWaypoints = [];  // inclusief loop-sluiting (eerste == laatste)
 let currentProfile = 'hiking-beta';
 let currentCleanBacktracks = true;
+let buurtenGj = null;
+let wijkenGj = null;
+let displayMode = 'buurten'; // of 'wijken'
 
 legend.onAdd = function () {
   this._div = L.DomUtil.create('div', 'info-panel legend');
@@ -444,10 +465,13 @@ action.show = function (feature) {
   clearWaypointMarkers();
   cachedRoute = null;
   this._div.style.display = 'block';
+  const wijkTag = p.__isWijk
+    ? `<span class="wijk-tag" style="background:${w.color}">Wijk</span>`
+    : `<span class="wijk-tag" style="background:${w.color}">${w.naam}</span>`;
   this._div.innerHTML = `
     <span class="close" id="closeAction">&times;</span>
     <h4>${p.buurtnaam}</h4>
-    <span class="wijk-tag" style="background:${w.color}">${w.naam}</span>
+    ${wijkTag}
     <div>
       <label style="font-size:11px;display:block;margin-top:8px;">Profiel:</label>
       <select id="profileSelect">
@@ -927,6 +951,7 @@ function onEachFeature(feature, layer) {
     buurtnaam: p.buurtnaam,
     wijknaam: w.naam,
     wijkColor: w.color,
+    isWijk: !!p.__isWijk,
     aantalInwoners: p.aantalInwoners,
     oppervlakteTotaalInHa: p.oppervlakteTotaalInHa,
     oppervlakteLandInHa: p.oppervlakteLandInHa
@@ -963,12 +988,52 @@ function buildWfsUrl(layer) {
     `&FILTER=${encodeURIComponent(ogcFilter)}`;
 }
 
+// Wrap wijk-features zodat ze dezelfde velden hebben als buurten (buurtnaam/buurtcode)
+function prepWijkFeatures(gj) {
+  return {
+    ...gj,
+    features: gj.features.map(f => ({
+      ...f,
+      properties: {
+        ...f.properties,
+        buurtnaam: f.properties.wijknaam || 'Wijk',
+        buurtcode: f.properties.wijkcode || '?',
+        __isWijk: true
+      }
+    }))
+  };
+}
+
+function renderLayer() {
+  if (geoLayer) map.removeLayer(geoLayer);
+  const data = displayMode === 'wijken' ? prepWijkFeatures(wijkenGj) : buurtenGj;
+  geoLayer = L.geoJSON(data, { style: styleFeature, onEachFeature }).addTo(map);
+  // Selectie/route resetten bij mode-wissel
+  action.hide();
+  selectedBuurtFeature = null;
+  clearRouteLayer();
+  clearWaypointMarkers();
+  cachedRoute = null;
+  // Ranking herbouwen uit huidige data
+  window._buurtList = data.features.map(f => ({
+    feature: f,
+    buurtcode: f.properties.buurtcode,
+    buurtnaam: f.properties.buurtnaam,
+    wijkcode: f.properties.wijkcode,
+    perimeterM: computePerimeter(f.geometry)
+  }));
+  const active = document.querySelector('#rankSort button.active');
+  renderRankList(active ? active.dataset.sort : 'perimAsc');
+}
+
 async function load() {
   // Haal wijken en buurten parallel op
-  const [wijkenGj, buurtenGj] = await Promise.all([
+  const [_wijkenGj, _buurtenGj] = await Promise.all([
     fetch(buildWfsUrl('wijken')).then(r => r.json()),
     fetch(buildWfsUrl('buurten')).then(r => r.json())
   ]);
+  wijkenGj = _wijkenGj;
+  buurtenGj = _buurtenGj;
 
   // Gemeentenaam uit respons bewaren voor titels
   if (wijkenGj.features.length > 0) {
@@ -988,21 +1053,11 @@ async function load() {
   legend.render();
   info.update();
 
-  // Render buurt-polygonen
-  geoLayer = L.geoJSON(buurtenGj, { style: styleFeature, onEachFeature }).addTo(map);
+  // Render polygonen via mode-aware renderLayer
+  renderLayer();
   map.fitBounds(geoLayer.getBounds());
   document.getElementById('loading').remove();
   console.log(`${buurtenGj.features.length} buurten, ${wijkenSorted.length} wijken geladen`);
-
-  // Buurten ranken op omtrek; koppel ook aan Leaflet-layer voor snelle selectie
-  window._buurtList = buurtenGj.features.map(f => ({
-    feature: f,
-    buurtcode: f.properties.buurtcode,
-    buurtnaam: f.properties.buurtnaam || '(naamloos)',
-    wijkcode: f.properties.wijkcode,
-    perimeterM: computePerimeter(f.geometry)
-  }));
-  renderRankList('perimAsc');
 }
 
 load().catch(e => {
