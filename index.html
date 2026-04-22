@@ -181,7 +181,11 @@
 <div id="rankOverlay" class="help-overlay">
   <div class="help-modal" style="max-width:420px;">
     <span class="help-close" id="rankClose">&times;</span>
-    <h3>Buurten op omtrek</h3>
+    <h3 id="rankTitle">Buurten op omtrek</h3>
+    <div class="rank-sort" id="rankType">
+      <button data-type="buurten" class="active">Buurten</button>
+      <button data-type="wijken">Wijken</button>
+    </div>
     <div class="rank-sort" id="rankSort">
       <button data-sort="perimAsc" class="active">Kort → lang</button>
       <button data-sort="perimDesc">Lang → kort</button>
@@ -257,7 +261,8 @@ const gemeenteCode = urlParams.get('gm') || 'GM0150';
 // State (moet boven info/legend controls staan die ze in templates gebruiken)
 let buurtenGj = null;
 let wijkenGj = null;
-let displayMode = 'buurten'; // of 'wijken'
+let displayMode = 'buurten'; // kaartlaag: 'buurten' of 'wijken'
+let rankingMode = 'buurten'; // ranking-modal: kan afwijken van displayMode
 
 // Kaart opzetten
 const map = L.map('map').setView([52.26, 6.19], 11);
@@ -676,6 +681,22 @@ function selectBuurtByCode(buurtcode) {
   });
 }
 
+// Bouw de gerankte lijst uit de huidige rankingMode (onafhankelijk van kaart-mode)
+function buildRankData() {
+  if (!buurtenGj || !wijkenGj) return;
+  const source = rankingMode === 'wijken' ? prepWijkFeatures(wijkenGj) : buurtenGj;
+  window._buurtList = source.features.map(f => ({
+    feature: f,
+    buurtcode: f.properties.buurtcode,
+    buurtnaam: f.properties.buurtnaam,
+    wijkcode: f.properties.wijkcode,
+    isWijk: !!f.properties.__isWijk,
+    perimeterM: computePerimeter(f.geometry)
+  }));
+  const title = document.getElementById('rankTitle');
+  if (title) title.textContent = rankingMode === 'wijken' ? 'Wijken op omtrek' : 'Buurten op omtrek';
+}
+
 function renderRankList(sortKey) {
   const list = window._buurtList;
   if (!list) return;
@@ -702,6 +723,14 @@ function renderRankList(sortKey) {
     el.addEventListener('click', () => {
       const code = el.dataset.code;
       document.getElementById('rankOverlay').classList.remove('show');
+      // Als het geselecteerde item een ander type is dan de huidige kaart-mode,
+      // switch de kaart voordat we selecteren.
+      if (rankingMode !== displayMode) {
+        displayMode = rankingMode;
+        const radio = document.querySelector(`input[name=mode][value=${displayMode}]`);
+        if (radio) radio.checked = true;
+        renderLayer();
+      }
       selectBuurtByCode(code);
     });
   });
@@ -1016,14 +1045,11 @@ function renderLayer() {
   clearRouteLayer();
   clearWaypointMarkers();
   cachedRoute = null;
-  // Ranking herbouwen uit huidige data
-  window._buurtList = data.features.map(f => ({
-    feature: f,
-    buurtcode: f.properties.buurtcode,
-    buurtnaam: f.properties.buurtnaam,
-    wijkcode: f.properties.wijkcode,
-    perimeterM: computePerimeter(f.geometry)
-  }));
+  // Ranking sync aan nieuwe kaart-mode
+  rankingMode = displayMode;
+  const typeBtns = document.querySelectorAll('#rankType button');
+  typeBtns.forEach(b => b.classList.toggle('active', b.dataset.type === rankingMode));
+  buildRankData();
   const active = document.querySelector('#rankSort button.active');
   renderRankList(active ? active.dataset.sort : 'perimAsc');
 }
@@ -1093,6 +1119,20 @@ load().catch(e => {
         rankSort.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         renderRankList(btn.dataset.sort);
+      });
+    });
+  }
+  // Type-toggle (buurten vs wijken) in ranking-modal
+  const rankType = document.getElementById('rankType');
+  if (rankType) {
+    rankType.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        rankType.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        rankingMode = btn.dataset.type;
+        buildRankData();
+        const activeSort = document.querySelector('#rankSort button.active');
+        renderRankList(activeSort ? activeSort.dataset.sort : 'perimAsc');
       });
     });
   }
