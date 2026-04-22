@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<title>Buurten — wijken</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+  #map { height: 100vh; width: 100vw; }
+  .info-panel {
+    padding: 10px 12px;
+    background: white;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.25);
+    border-radius: 6px;
+    font-size: 13px;
+    max-width: 280px;
+  }
+  .info-panel h4 { margin: 0 0 6px; font-size: 14px; }
+  .info-panel .wijk-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: #fff;
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .legend { line-height: 18px; max-height: 70vh; overflow-y: auto; }
+  .legend h4 { margin: 0 0 6px; font-size: 13px; }
+  .legend div.item { cursor: pointer; padding: 2px 4px; border-radius: 3px; user-select: none; }
+  .legend div.item:hover { background: #eee; }
+  .legend div.item.active { background: #ddd; font-weight: 600; }
+  .legend i {
+    width: 14px; height: 14px;
+    display: inline-block;
+    margin-right: 6px;
+    opacity: 0.8;
+    vertical-align: middle;
+    border: 1px solid #333;
+  }
+  .legend .reset {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #555;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .opacity-control {
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+  }
+  .opacity-control label { display: block; margin-bottom: 3px; }
+  .opacity-control input[type="range"] { width: 100%; }
+  .action-panel {
+    padding: 10px 12px;
+    background: white;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.25);
+    border-radius: 6px;
+    font-size: 13px;
+    max-width: 300px;
+  }
+  .action-panel h4 { margin: 0 0 6px; font-size: 14px; }
+  .action-panel button {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: #2c7fb8;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .action-panel button:hover { background: #1f5f8b; }
+  .action-panel button:disabled { background: #999; cursor: wait; }
+  .action-panel select { width: 100%; margin-top: 4px; padding: 3px; font-size: 12px; }
+  .action-panel .close {
+    float: right;
+    cursor: pointer;
+    color: #888;
+    font-size: 16px;
+    line-height: 14px;
+  }
+  .action-panel .status { margin-top: 6px; font-size: 11px; color: #555; }
+  .help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #2c7fb8;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-left: 6px;
+    vertical-align: middle;
+    user-select: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .help-btn:hover { background: #1f5f8b; }
+  .help-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+  }
+  .help-overlay.show { display: flex; }
+  .help-modal {
+    background: white;
+    max-width: 420px;
+    padding: 20px 24px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .help-modal h3 { margin: 0 0 10px; }
+  .help-modal ol { margin: 0 0 8px; padding-left: 20px; }
+  .help-modal li { margin-bottom: 6px; }
+  .help-modal .help-close {
+    float: right;
+    cursor: pointer;
+    color: #888;
+    font-size: 20px;
+    line-height: 16px;
+  }
+  .help-modal .help-close:hover { color: #333; }
+  .loading {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255,255,255,0.95);
+    padding: 20px 30px;
+    border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 500;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="loading" class="loading">Contouren laden vanuit PDOK...</div>
+<div id="helpOverlay" class="help-overlay">
+  <div class="help-modal">
+    <span class="help-close" id="helpClose">&times;</span>
+    <h3>Hoe werkt het?</h3>
+    <ol>
+      <li><b>Vul gemeentenaam in</b> in de zoekbalk rechtsboven en selecteer de gemeente.</li>
+      <li><b>Kies een buurt</b> op de kaart door erop te klikken.</li>
+      <li><b>Kies een pad-type</b> (hiking, trekking, shortest of safety) in het paneel linksboven.</li>
+      <li><b>Genereer de route</b> met "Toon route op kaart" en tweak waar nodig: sleep waypoints, verwijder er een met rechtermuisklik, of pas het aantal waypoints aan.</li>
+      <li><b>Exporteer als GPX</b> met "Download als GPX".</li>
+      <li><b>Importeer het GPX-bestand</b> in Komoot, Strava, Garmin Connect of je favoriete hardloop-app.</li>
+    </ol>
+    <small style="color:#888;">Tip: bij problemen aan de rand van de stad, verlaag het aantal waypoints.</small>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Zoek gemeenten via PDOK Locatieserver
+async function gemeenteSearch(q, resultsDiv) {
+  try {
+    const url = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=${encodeURIComponent(q)}&fq=type:gemeente&rows=15&fl=id,gemeentecode,gemeentenaam,weergavenaam`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const docs = (data.response && data.response.docs) || [];
+    if (docs.length === 0) {
+      resultsDiv.innerHTML = '<div style="padding:6px;color:#888;font-size:12px;">Geen resultaten</div>';
+      resultsDiv.style.display = 'block';
+      return;
+    }
+    resultsDiv.innerHTML = docs.map(d => {
+      const rawCode = d.gemeentecode || '';
+      const code = rawCode ? `GM${rawCode}` : '';
+      const naam = d.gemeentenaam || d.weergavenaam || '?';
+      return `<div class="gm-result" data-code="${code}" style="padding:5px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0;">${naam}<small style="color:#888;"> (${code})</small></div>`;
+    }).join('');
+    resultsDiv.style.display = 'block';
+    resultsDiv.querySelectorAll('.gm-result').forEach(el => {
+      el.addEventListener('click', () => {
+        const code = el.dataset.code;
+        if (code) window.location.href = `${window.location.pathname}?gm=${code}`;
+      });
+      el.addEventListener('mouseenter', () => el.style.background = '#eef5fb');
+      el.addEventListener('mouseleave', () => el.style.background = '');
+    });
+  } catch (e) {
+    resultsDiv.innerHTML = `<div style="padding:6px;color:#c00;font-size:12px;">Zoekfout: ${e.message}</div>`;
+    resultsDiv.style.display = 'block';
+  }
+}
+
+// Kleurpalet voor wijken, cyclisch gebruikt als er meer wijken zijn
+const palette = [
+  '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
+  '#d4b02a', '#a65628', '#f781bf', '#7f7f7f', '#66c2a5',
+  '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#17becf',
+  '#1f77b4', '#ff9896', '#9467bd', '#8c564b', '#bcbd22'
+];
+
+// Gemeente via URL-parameter ?gm=GM0344 (standaard: Deventer)
+const urlParams = new URLSearchParams(window.location.search);
+const gemeenteCode = urlParams.get('gm') || 'GM0150';
+
+// Kaart opzetten
+const map = L.map('map').setView([52.26, 6.19], 11);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO | Contouren: PDOK / CBS 2023',
+  maxZoom: 19,
+  subdomains: 'abcd'
+}).addTo(map);
+
+// Info-paneel (top right)
+const info = L.control({ position: 'topright' });
+info.onAdd = function () {
+  this._div = L.DomUtil.create('div', 'info-panel');
+  this.update();
+  return this._div;
+};
+info.update = function (d) {
+  if (d) {
+    this._div.innerHTML =
+      `<h4>${d.buurtnaam}</h4>
+       <span class="wijk-tag" style="background:${d.wijkColor}">${d.wijknaam}</span><br>
+       <b>Inwoners:</b> ${(d.aantalInwoners >= 0 ? d.aantalInwoners : 0).toLocaleString('nl-NL')}<br>
+       <b>Oppervlakte:</b> ${d.oppervlakteTotaalInHa} ha<br>
+       <b>Land:</b> ${d.oppervlakteLandInHa} ha<br>
+       <b>Code:</b> <code>${d.buurtcode}</code>`;
+  } else {
+    const naam = window._gemeenteNaam || 'gemeente';
+    this._div.innerHTML = `
+      <h4>Buurten ${naam}</h4>
+      <label style="font-size:11px;">Andere gemeente zoeken:
+        <input type="text" id="gemeenteSearch" placeholder="bijv. Utrecht, Amsterdam..." autocomplete="off" style="width:100%;margin-top:3px;padding:4px;box-sizing:border-box;border:1px solid #ccc;border-radius:3px;font-size:12px;">
+      </label>
+      <div id="gemeenteResults" style="margin-top:3px;max-height:200px;overflow-y:auto;border:1px solid #ddd;border-radius:3px;display:none;background:white;"></div>
+      <div style="margin-top:6px;">Beweeg over een buurt voor details.</div>
+      <small style="color:#777;">Bron: PDOK / CBS Wijk- en Buurtkaart 2023.</small>`;
+
+    const searchInput = this._div.querySelector('#gemeenteSearch');
+    const resultsDiv = this._div.querySelector('#gemeenteResults');
+    let searchTimer = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      const q = searchInput.value.trim();
+      if (q.length < 2) {
+        resultsDiv.style.display = 'none';
+        resultsDiv.innerHTML = '';
+        return;
+      }
+      searchTimer = setTimeout(() => gemeenteSearch(q, resultsDiv), 200);
+    });
+    searchInput.addEventListener('focus', () => {
+      if (resultsDiv.innerHTML.trim()) resultsDiv.style.display = 'block';
+    });
+    document.addEventListener('click', (e) => {
+      if (!this._div.contains(e.target)) resultsDiv.style.display = 'none';
+    });
+
+  }
+};
+info.addTo(map);
+
+// Legenda (bottom right) met filter-functie
+const legend = L.control({ position: 'bottomright' });
+let selectedWijkcode = null;
+let geoLayer;
+let wijkByCode = {};
+let fillOpacity = 0.65;
+let selectedBuurtFeature = null;
+let routeLayer = null;
+let cachedRoute = null; // { coords, distKm, buurtcode, buurtnaam, profile }
+let waypointMarkers = [];
+let currentWaypoints = [];  // inclusief loop-sluiting (eerste == laatste)
+let currentProfile = 'hiking-beta';
+let currentCleanBacktracks = true;
+
+legend.onAdd = function () {
+  this._div = L.DomUtil.create('div', 'info-panel legend');
+  L.DomEvent.disableClickPropagation(this._div);
+  return this._div;
+};
+legend.render = function () {
+  const items = Object.values(wijkByCode)
+    .sort((a, b) => a.code.localeCompare(b.code))
+    .map(w => `<div class="item" data-code="${w.code}"><i style="background:${w.color}"></i>${w.naam}</div>`)
+    .join('');
+  this._div.innerHTML =
+    `<span class="close" id="closeLegend" style="float:right;cursor:pointer;color:#888;font-size:16px;line-height:14px;">&times;</span>
+     <div class="opacity-control">
+       <label>Vulkleur: <span id="opacityValue">${Math.round(fillOpacity * 100)}%</span></label>
+       <input type="range" id="opacitySlider" min="0" max="100" value="${Math.round(fillOpacity * 100)}">
+     </div>
+     <h4 style="clear:both;">Wijken (klik om te filteren)</h4>` + items +
+    '<div class="reset" id="resetFilter">alle wijken tonen</div>';
+
+  this._div.querySelector('#closeLegend').addEventListener('click', () => {
+    this._div.style.display = 'none';
+    legendOpener.addTo(map);
+  });
+
+  const slider = this._div.querySelector('#opacitySlider');
+  const value = this._div.querySelector('#opacityValue');
+  slider.addEventListener('input', () => {
+    fillOpacity = slider.value / 100;
+    value.textContent = slider.value + '%';
+    geoLayer.setStyle(styleFeature);
+  });
+
+  this._div.querySelectorAll('.item').forEach(el => {
+    el.addEventListener('click', () => {
+      const code = el.dataset.code;
+      selectedWijkcode = (selectedWijkcode === code) ? null : code;
+      this._div.querySelectorAll('.item').forEach(i =>
+        i.classList.toggle('active', i.dataset.code === selectedWijkcode));
+      geoLayer.setStyle(styleFeature);
+    });
+  });
+  this._div.querySelector('#resetFilter').addEventListener('click', () => {
+    selectedWijkcode = null;
+    this._div.querySelectorAll('.item').forEach(i => i.classList.remove('active'));
+    geoLayer.setStyle(styleFeature);
+  });
+};
+legend.addTo(map);
+
+// Knop om de legenda opnieuw te openen nadat hij is weggeklikt
+const legendOpener = L.control({ position: 'bottomright' });
+// Help-knop linksonder
+const helpControl = L.control({ position: 'bottomleft' });
+helpControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'info-panel');
+  div.style.cursor = 'pointer';
+  div.style.padding = '6px 12px';
+  div.style.display = 'flex';
+  div.style.alignItems = 'center';
+  div.style.gap = '6px';
+  div.style.fontWeight = '600';
+  div.innerHTML = '<span class="help-btn" style="margin:0;">?</span> Help';
+  L.DomEvent.disableClickPropagation(div);
+  div.addEventListener('click', () => {
+    document.getElementById('helpOverlay').classList.add('show');
+  });
+  return div;
+};
+helpControl.addTo(map);
+
+legendOpener.onAdd = function () {
+  const div = L.DomUtil.create('div', 'info-panel');
+  div.style.cursor = 'pointer';
+  div.style.padding = '6px 10px';
+  div.innerHTML = '☰ Legenda';
+  L.DomEvent.disableClickPropagation(div);
+  div.addEventListener('click', () => {
+    legend._div.style.display = 'block';
+    map.removeControl(legendOpener);
+  });
+  return div;
+};
+
+// Action-paneel (top left) — verschijnt na klik op buurt
+const action = L.control({ position: 'topleft' });
+action.onAdd = function () {
+  this._div = L.DomUtil.create('div', 'action-panel');
+  L.DomEvent.disableClickPropagation(this._div);
+  this._div.style.display = 'none';
+  return this._div;
+};
+action.show = function (feature) {
+  const p = feature.properties;
+  const w = wijkByCode[p.wijkcode] || { naam: '?', color: '#888' };
+  clearRouteLayer();
+  clearWaypointMarkers();
+  cachedRoute = null;
+  this._div.style.display = 'block';
+  this._div.innerHTML = `
+    <span class="close" id="closeAction">&times;</span>
+    <h4>${p.buurtnaam}</h4>
+    <span class="wijk-tag" style="background:${w.color}">${w.naam}</span>
+    <div>
+      <label style="font-size:11px;display:block;margin-top:8px;">Profiel:</label>
+      <select id="profileSelect">
+        <option value="hiking-beta">Hiking (paden + straten)</option>
+        <option value="trekking">Trekking (bredere wegen ok)</option>
+        <option value="shortest">Shortest (kortste route)</option>
+        <option value="safety">Safety (veilige fietsroutes)</option>
+      </select>
+    </div>
+    <div style="margin-top:8px;">
+      <label style="font-size:11px;display:block;">
+        Waypoints: <span id="wpValue">20</span>
+        <br><small style="color:#777;">minder = meer vrijheid voor router</small>
+      </label>
+      <input type="range" id="wpSlider" min="6" max="40" value="20" style="width:100%;">
+    </div>
+    <input type="hidden" id="insetSlider" value="5">
+    <span id="insetValue" style="display:none;">5</span>
+    <label style="font-size:11px;display:block;margin-top:6px;">
+      <input type="checkbox" id="cleanBacktracks" checked>
+      Backtracks & doodloop-uitstapjes verwijderen
+    </label>
+    <button id="previewRouteBtn">↗ Toon route op kaart</button>
+    <button id="downloadGpxBtn" disabled style="background:#999;">⬇ Download als GPX</button>
+    <div class="status" id="gpxStatus">Klik 'Toon route' om te berekenen.</div>
+  `;
+  this._div.querySelector('#closeAction').onclick = () => {
+    this._div.style.display = 'none';
+    selectedBuurtFeature = null;
+    clearRouteLayer();
+    clearWaypointMarkers();
+    cachedRoute = null;
+  };
+  this._div.querySelector('#previewRouteBtn').onclick = () => {
+    const profile = this._div.querySelector('#profileSelect').value;
+    const wpCount = parseInt(this._div.querySelector('#wpSlider').value);
+    const inset = parseInt(this._div.querySelector('#insetSlider').value) / 100;
+    const clean = this._div.querySelector('#cleanBacktracks').checked;
+    previewRoute(feature, profile, wpCount, clean, inset);
+  };
+  const wpSlider = this._div.querySelector('#wpSlider');
+  const wpValue = this._div.querySelector('#wpValue');
+  wpSlider.oninput = () => { wpValue.textContent = wpSlider.value; };
+  const insetSlider = this._div.querySelector('#insetSlider');
+  const insetValue = this._div.querySelector('#insetValue');
+  insetSlider.oninput = () => { insetValue.textContent = insetSlider.value; };
+  this._div.querySelector('#downloadGpxBtn').onclick = () => {
+    downloadCachedGpx();
+  };
+  this._div.querySelector('#profileSelect').onchange = () => {
+    currentProfile = this._div.querySelector('#profileSelect').value;
+    if (currentWaypoints.length > 0 && selectedBuurtFeature) {
+      // Als er al waypoints staan, direct herrouteren met nieuw profiel
+      fetchAndRenderRoute();
+    } else {
+      const btn = this._div.querySelector('#downloadGpxBtn');
+      btn.disabled = true;
+      btn.style.background = '#999';
+      action.setStatus('Profiel gewijzigd — klik Toon route.');
+    }
+  };
+  this._div.querySelector('#cleanBacktracks').onchange = (e) => {
+    currentCleanBacktracks = e.target.checked;
+    if (currentWaypoints.length > 0 && selectedBuurtFeature) fetchAndRenderRoute();
+  };
+};
+action.hide = function () { this._div.style.display = 'none'; };
+action.setStatus = function (msg) {
+  const el = this._div.querySelector('#gpxStatus');
+  if (el) el.textContent = msg;
+};
+action.setLoading = function (loading) {
+  const btn = this._div.querySelector('#previewRouteBtn');
+  if (btn) {
+    btn.disabled = loading;
+    btn.textContent = loading ? '⏳ Route berekenen...' : '↗ Toon route op kaart';
+  }
+};
+action.enableDownload = function () {
+  const btn = this._div.querySelector('#downloadGpxBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.style.background = '#2c7fb8';
+  }
+};
+
+function clearRouteLayer() {
+  if (routeLayer) {
+    map.removeLayer(routeLayer);
+    routeLayer = null;
+  }
+}
+
+function clearWaypointMarkers() {
+  waypointMarkers.forEach(m => map.removeLayer(m));
+  waypointMarkers = [];
+}
+
+function waypointIcon(n, isStart) {
+  const border = isStart ? '#000' : '#ff2d6f';
+  const bg = isStart ? '#ffd400' : '#fff';
+  return L.divIcon({
+    className: 'wp-marker',
+    html: `<div style="background:${bg};border:2px solid ${border};border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#222;box-shadow:0 1px 3px rgba(0,0,0,0.35);cursor:move;">${n}</div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+}
+
+function renderWaypointMarkers() {
+  clearWaypointMarkers();
+  const n = currentWaypoints.length - 1; // laatste = eerste (lus), niet dubbel tonen
+  for (let i = 0; i < n; i++) {
+    const wp = currentWaypoints[i];
+    const marker = L.marker([wp[1], wp[0]], {
+      draggable: true,
+      icon: waypointIcon(i + 1, i === 0),
+      zIndexOffset: 1000
+    }).addTo(map);
+    marker.bindTooltip(`Waypoint ${i + 1}${i === 0 ? ' (start/eind)' : ''}<br><small>sleep om te verschuiven · rechterklik om te verwijderen</small>`, { direction: 'top' });
+    marker.on('dragend', () => {
+      const ll = marker.getLatLng();
+      currentWaypoints[i] = [ll.lng, ll.lat];
+      if (i === 0) {
+        currentWaypoints[currentWaypoints.length - 1] = [ll.lng, ll.lat];
+      }
+      fetchAndRenderRoute();
+    });
+    marker.on('contextmenu', (e) => {
+      L.DomEvent.preventDefault(e);
+      if (currentWaypoints.length - 1 <= 4) {
+        action.setStatus('Minimum 4 waypoints vereist');
+        return;
+      }
+      currentWaypoints.splice(i, 1);
+      if (i === 0) {
+        currentWaypoints[currentWaypoints.length - 1] = currentWaypoints[0];
+      }
+      renderWaypointMarkers();
+      fetchAndRenderRoute();
+    });
+    waypointMarkers.push(marker);
+  }
+}
+action.addTo(map);
+
+// Haal eerste buitenring van polygon op (Polygon of MultiPolygon)
+function getOuterRing(geometry) {
+  if (geometry.type === 'Polygon') return geometry.coordinates[0];
+  if (geometry.type === 'MultiPolygon') {
+    // Pak grootste polygon op basis van aantal punten
+    return geometry.coordinates
+      .map(poly => poly[0])
+      .reduce((a, b) => a.length >= b.length ? a : b);
+  }
+  return [];
+}
+
+// Subsample ring naar ~maxPoints punten, behoud eerste en laatste
+function simplifyRing(ring, maxPoints) {
+  if (ring.length <= maxPoints) return ring.slice();
+  const step = (ring.length - 1) / (maxPoints - 1);
+  const result = [];
+  for (let i = 0; i < maxPoints; i++) {
+    result.push(ring[Math.round(i * step)]);
+  }
+  return result;
+}
+
+// Haversine-afstand in meters
+function haversine(a, b) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLon = toRad(b[0] - a[0]);
+  const la1 = toRad(a[1]), la2 = toRad(b[1]);
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function totalDistance(coords) {
+  let d = 0;
+  for (let i = 1; i < coords.length; i++) d += haversine(coords[i-1], coords[i]);
+  return d;
+}
+
+// Verwijder palindromische sub-trajecten (doodloop-uitstapjes en U-turns).
+// Herhaal tot stabiel: als het op-een-na-laatste punt gelijk is aan het
+// nieuwe punt, is er een directe omkeer — verwijder het tussenliggende punt.
+function removeBacktracks(coords) {
+  const eq = (a, b) => Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations < 50) {
+    changed = false;
+    iterations++;
+    const result = [];
+    for (const c of coords) {
+      if (result.length >= 2 && eq(c, result[result.length - 2])) {
+        result.pop();
+        changed = true;
+      } else {
+        result.push(c);
+      }
+    }
+    coords = result;
+  }
+  return coords;
+}
+
+// Zwaartepunt van een ring (outer boundary)
+function ringCentroid(ring) {
+  let sx = 0, sy = 0, n = 0;
+  const end = (ring.length > 1 && ring[0][0] === ring[ring.length-1][0] && ring[0][1] === ring[ring.length-1][1])
+    ? ring.length - 1 : ring.length;
+  for (let i = 0; i < end; i++) {
+    sx += ring[i][0];
+    sy += ring[i][1];
+    n++;
+  }
+  return n > 0 ? [sx / n, sy / n] : [0, 0];
+}
+
+function insetPoint(p, centroid, fraction) {
+  return [
+    p[0] + fraction * (centroid[0] - p[0]),
+    p[1] + fraction * (centroid[1] - p[1])
+  ];
+}
+
+async function previewRoute(feature, profile, wpCount = 20, cleanBacktracks = true, insetFraction = 0.05) {
+  // Init: sample waypoints uit polygon, pas inset toe, maak markers aan, fetch route
+  const ring = getOuterRing(feature.geometry);
+  if (ring.length === 0) {
+    action.setStatus('Fout: geen geldige polygon');
+    return;
+  }
+  const centroid = ringCentroid(ring);
+  let waypoints = simplifyRing(ring, wpCount);
+  if (insetFraction > 0) {
+    waypoints = waypoints.map(p => insetPoint(p, centroid, insetFraction));
+  }
+  const first = waypoints[0];
+  const last = waypoints[waypoints.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    waypoints.push([first[0], first[1]]);
+  }
+  currentWaypoints = waypoints.map(p => [p[0], p[1]]);
+  currentProfile = profile;
+  currentCleanBacktracks = cleanBacktracks;
+  renderWaypointMarkers();
+  await fetchAndRenderRoute(true);
+}
+
+async function fetchBRouter(waypoints, profile) {
+  const lonlats = waypoints
+    .map(p => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join('|');
+  const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`;
+  const r = await fetch(url);
+  const text = await r.text();
+  if (!r.ok) return { ok: false, status: r.status, error: text };
+  try { return { ok: true, data: JSON.parse(text) }; }
+  catch { return { ok: false, status: 500, error: text }; }
+}
+
+// Probeer index van een problematische waypoint uit de BRouter foutmelding te halen
+function extractBadWaypointIndex(err) {
+  // BRouter patronen:
+  //   "from-position not mapped in existing datafile"
+  //   "via-position N not mapped..."
+  //   "to-position not mapped..."
+  //   "target island detected for section N" / "source island detected for section N"
+  //   "coordinate N not on routable way"
+  const viaMatch = err.match(/via-position\s+(\d+)/i);
+  if (viaMatch) return parseInt(viaMatch[1]);
+  if (/from-position not mapped/i.test(err)) return 0;
+  if (/to-position not mapped/i.test(err)) return -1; // laatste
+  // section N = segment tussen waypoint N en N+1; drop waypoint N+1 (vaak de 'unreachable' kant)
+  const sectionMatch = err.match(/(?:target|source)\s+island\s+detected\s+for\s+section\s+(\d+)/i);
+  if (sectionMatch) return parseInt(sectionMatch[1]) + 1;
+  const coordMatch = err.match(/coordinate\s+(\d+)/i);
+  if (coordMatch) return parseInt(coordMatch[1]);
+  return null;
+}
+
+async function fetchAndRenderRoute(fitBounds = false) {
+  action.setLoading(true);
+  action.setStatus('Route ophalen van BRouter...');
+  try {
+    // Probeer eerst met de huidige waypoints. Bij 400: drop slechte waypoint(s), retry.
+    let attempts = 0;
+    let wps = currentWaypoints.map(p => [p[0], p[1]]);
+    let result;
+    let droppedCount = 0;
+    while (attempts < 6) {
+      result = await fetchBRouter(wps, currentProfile);
+      if (result.ok) break;
+      // Probeer de falende waypoint te identificeren
+      const idx = extractBadWaypointIndex(result.error);
+      const minLen = 5; // minimum waypoints voor een lus
+      if (idx !== null && wps.length > minLen) {
+        const realIdx = idx === -1 ? wps.length - 1 : idx;
+        if (realIdx === 0 || realIdx === wps.length - 1) {
+          // start of eind faalt: sluit lus met buurman
+          wps.splice(wps.length - 1, 1);
+          wps.splice(0, 1);
+          wps.push([wps[0][0], wps[0][1]]); // herstel lus
+        } else {
+          wps.splice(realIdx, 1);
+        }
+        droppedCount++;
+        action.setStatus(`Waypoint ${idx} faalt — probeer opnieuw (${droppedCount} weg)...`);
+        attempts++;
+        continue;
+      }
+      // Kunnen we niet identificeren? Halveer aantal waypoints
+      if (wps.length > minLen + 2) {
+        wps = wps.filter((_, i) => i % 2 === 0);
+        if (wps[wps.length - 1][0] !== wps[0][0] || wps[wps.length - 1][1] !== wps[0][1]) {
+          wps.push([wps[0][0], wps[0][1]]);
+        }
+        droppedCount = currentWaypoints.length - wps.length;
+        action.setStatus(`Fallback: aantal waypoints gehalveerd (nu ${wps.length - 1})...`);
+        attempts++;
+        continue;
+      }
+      throw new Error(`HTTP ${result.status}: ${result.error.slice(0, 200)}`);
+    }
+    if (!result.ok) {
+      throw new Error(`Na ${attempts} pogingen nog steeds fout: ${result.error.slice(0, 150)}`);
+    }
+
+    // Update currentWaypoints naar de werkende set
+    currentWaypoints = wps;
+    renderWaypointMarkers();
+
+    const gj = result.data;
+    if (!gj.features || gj.features.length === 0) throw new Error('Geen route gevonden');
+    let coords = gj.features[0].geometry.coordinates;
+    const rawLen = coords.length;
+
+    let cleanedInfo = '';
+    if (currentCleanBacktracks) {
+      const before = coords.length;
+      coords = removeBacktracks(coords);
+      const removed = before - coords.length;
+      if (removed > 0) cleanedInfo = ` · ${removed} backtrack-pt weg`;
+    }
+
+    const distKm = totalDistance(coords) / 1000;
+
+    clearRouteLayer();
+    routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), {
+      color: '#ff2d6f',
+      weight: 5,
+      opacity: 0.9
+    }).addTo(map);
+    if (fitBounds) map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
+
+    cachedRoute = {
+      coords,
+      distKm,
+      buurtcode: selectedBuurtFeature.properties.buurtcode,
+      buurtnaam: selectedBuurtFeature.properties.buurtnaam,
+      profile: currentProfile
+    };
+    const wpN = currentWaypoints.length - 1;
+    const dropInfo = droppedCount > 0 ? ` · ${droppedCount} wp gedropt` : '';
+    action.setStatus(`${distKm.toFixed(2)} km · ${wpN} wp · ${rawLen} pt${cleanedInfo}${dropInfo}`);
+    action.enableDownload();
+  } catch (e) {
+    action.setStatus('Fout: ' + e.message);
+  } finally {
+    action.setLoading(false);
+  }
+}
+
+function buildGpxFromCoords(name, coords) {
+  const esc = s => String(s).replace(/[<>&'"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c]));
+  const pts = coords.map(c => {
+    const ele = c[2] !== undefined ? `<ele>${c[2]}</ele>` : '';
+    return `      <trkpt lat="${c[1].toFixed(6)}" lon="${c[0].toFixed(6)}">${ele}</trkpt>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Deventer Buurten Map" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>${esc(name)}</name></metadata>
+  <trk>
+    <name>${esc(name)}</name>
+    <trkseg>
+${pts}
+    </trkseg>
+  </trk>
+</gpx>`;
+}
+
+function downloadCachedGpx() {
+  if (!cachedRoute) return;
+  const safe = cachedRoute.buurtnaam.replace(/[^\w\-]+/g, '_');
+  const name = `Deventer ${cachedRoute.buurtnaam} (${cachedRoute.profile})`;
+  const gpx = buildGpxFromCoords(name, cachedRoute.coords);
+  const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Deventer_${safe}_${cachedRoute.profile}.gpx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+  action.setStatus(`GPX gedownload: ${cachedRoute.distKm.toFixed(2)} km`);
+}
+
+function styleFeature(feature) {
+  const w = wijkByCode[feature.properties.wijkcode];
+  const color = w ? w.color : '#ccc';
+  const faded = selectedWijkcode && feature.properties.wijkcode !== selectedWijkcode;
+  return {
+    color: '#222',
+    weight: faded ? 0.5 : 1,
+    opacity: faded ? 0.3 : 1,
+    fillColor: color,
+    fillOpacity: faded ? Math.min(fillOpacity * 0.1, 0.05) : fillOpacity
+  };
+}
+
+function onEachFeature(feature, layer) {
+  const p = feature.properties;
+  const w = wijkByCode[p.wijkcode] || { naam: '?', color: '#888' };
+  const data = {
+    buurtcode: p.buurtcode,
+    buurtnaam: p.buurtnaam,
+    wijknaam: w.naam,
+    wijkColor: w.color,
+    aantalInwoners: p.aantalInwoners,
+    oppervlakteTotaalInHa: p.oppervlakteTotaalInHa,
+    oppervlakteLandInHa: p.oppervlakteLandInHa
+  };
+  layer.on({
+    mouseover: () => {
+      layer.setStyle({ weight: 3, color: '#000', fillOpacity: 0.85 });
+      layer.bringToFront();
+      info.update(data);
+    },
+    mouseout: () => {
+      geoLayer.resetStyle(layer);
+      info.update();
+    },
+    click: (e) => {
+      selectedBuurtFeature = feature;
+      map.fitBounds(e.target.getBounds());
+      action.show(feature);
+    }
+  });
+}
+
+function buildWfsUrl(layer) {
+  // CQL_FILTER wordt genegeerd door PDOK; OGC FILTER (XML) werkt wel
+  const ogcFilter =
+    '<Filter xmlns="http://www.opengis.net/ogc">' +
+      '<PropertyIsEqualTo>' +
+        '<PropertyName>gemeentecode</PropertyName>' +
+        `<Literal>${gemeenteCode}</Literal>` +
+      '</PropertyIsEqualTo>' +
+    '</Filter>';
+  return `https://service.pdok.nl/cbs/wijkenbuurten/2023/wfs/v1_0?service=WFS&version=2.0.0&request=GetFeature` +
+    `&typeNames=wijkenbuurten:${layer}&outputFormat=application/json&srsName=EPSG:4326` +
+    `&FILTER=${encodeURIComponent(ogcFilter)}`;
+}
+
+async function load() {
+  // Haal wijken en buurten parallel op
+  const [wijkenGj, buurtenGj] = await Promise.all([
+    fetch(buildWfsUrl('wijken')).then(r => r.json()),
+    fetch(buildWfsUrl('buurten')).then(r => r.json())
+  ]);
+
+  // Gemeentenaam uit respons bewaren voor titels
+  if (wijkenGj.features.length > 0) {
+    window._gemeenteNaam = wijkenGj.features[0].properties.gemeentenaam || gemeenteCode;
+    document.title = `Buurten ${window._gemeenteNaam} — wijken`;
+  }
+
+  // Bouw wijkcode → { naam, color } op volgorde
+  const wijkenSorted = wijkenGj.features
+    .map(f => ({ code: f.properties.wijkcode, naam: f.properties.wijknaam }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+  wijkenSorted.forEach((w, i) => {
+    wijkByCode[w.code] = { ...w, color: palette[i % palette.length] };
+  });
+
+  // Render legenda + info-paneel opnieuw met gemeentenaam
+  legend.render();
+  info.update();
+
+  // Render buurt-polygonen
+  geoLayer = L.geoJSON(buurtenGj, { style: styleFeature, onEachFeature }).addTo(map);
+  map.fitBounds(geoLayer.getBounds());
+  document.getElementById('loading').remove();
+  console.log(`${buurtenGj.features.length} buurten, ${wijkenSorted.length} wijken geladen`);
+}
+
+load().catch(e => {
+  document.getElementById('loading').innerHTML =
+    `<b>Fout bij laden PDOK:</b><br>${e.message}`;
+});
+
+// Help-modal open/close
+(function setupHelp() {
+  const overlay = document.getElementById('helpOverlay');
+  const closeBtn = document.getElementById('helpClose');
+  if (closeBtn) closeBtn.addEventListener('click', () => overlay.classList.remove('show'));
+  if (overlay) overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('show');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') overlay.classList.remove('show');
+  });
+})();
+</script>
+</body>
+</html>
