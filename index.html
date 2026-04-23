@@ -122,8 +122,18 @@
     line-height: 1.5;
   }
   .help-modal h3 { margin: 0 0 10px; }
-  .help-modal ol { margin: 0 0 8px; padding-left: 20px; }
+  .help-modal h4 { margin: 14px 0 6px; font-size: 13px; color: #2c7fb8; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+  .help-modal ol, .help-modal ul { margin: 0 0 8px; padding-left: 20px; }
   .help-modal li { margin-bottom: 6px; }
+  .help-modal kbd {
+    background: #eee;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: monospace;
+    font-size: 11px;
+  }
+  .help-modal .section-scroll { max-height: 70vh; overflow-y: auto; padding-right: 6px; }
   .help-modal .help-close {
     float: right;
     cursor: pointer;
@@ -198,22 +208,50 @@
   <div class="help-modal">
     <span class="help-close" id="helpClose">&times;</span>
     <h3>Hoe werkt het?</h3>
+    <div class="section-scroll">
+
+    <h4>Stappenplan</h4>
     <ol>
-      <li><b>Vul gemeentenaam in</b> in de zoekbalk rechtsboven en selecteer de gemeente.</li>
-      <li><b>Kies een buurt</b> op de kaart door erop te klikken.</li>
+      <li><b>Vul gemeentenaam in</b> in de zoekbalk rechtsboven en selecteer de gemeente uit de lijst.</li>
+      <li><b>Kies buurten of wijken</b> via de radio-knoppen onder de zoekbalk.</li>
+      <li><b>Klik op een buurt (of wijk)</b> op de kaart om hem te selecteren.</li>
       <li><b>Kies een pad-type</b> (hiking, trekking, shortest of safety) in het paneel linksboven.</li>
-      <li><b>Genereer de route</b> met "Toon route op kaart" en tweak waar nodig:
-        <ul style="margin:4px 0 0 0;padding-left:18px;">
-          <li>Sleep een waypoint om hem te verschuiven</li>
-          <li>Klik een waypoint voor opties (<b>verwijderen</b> of <b>als startpunt instellen</b>)</li>
-          <li><b>Shift+klik</b> ergens op de kaart om een waypoint in te voegen op de optimale plek</li>
-          <li>Pas het aantal waypoints aan met de slider voor een andere verdeling</li>
+      <li><b>Genereer de route</b> met "↗ Toon route op kaart".</li>
+      <li><b>Tweak de waypoints</b> als dat nodig is (zie hieronder).</li>
+      <li><b>Download als GPX</b>.</li>
+      <li><b>Importeer</b> het GPX-bestand in Komoot, Strava, Garmin Connect of je favoriete hardloop-app.</li>
+    </ol>
+
+    <h4>Waypoints bewerken</h4>
+    <ul>
+      <li><b>Slepen</b>: verschuif een waypoint; de route herberekent automatisch.</li>
+      <li><b>Klik op een waypoint</b> → mini-popup met twee acties:
+        <ul>
+          <li>★ <b>Maak startpunt</b> — roteert de lus zodat deze waypoint het begin/eind wordt.</li>
+          <li>✕ <b>Verwijder waypoint</b> — haalt hem weg (minimaal 4 waypoints vereist).</li>
         </ul>
       </li>
-      <li><b>Exporteer als GPX</b> met "Download als GPX".</li>
-      <li><b>Importeer het GPX-bestand</b> in Komoot, Strava, Garmin Connect of je favoriete hardloop-app.</li>
-    </ol>
-    <small style="color:#888;">Tip: bij problemen aan de rand van de stad, verlaag het aantal waypoints.</small>
+      <li><kbd>Shift</kbd>+<b>klik</b> ergens op de kaart → voeg een nieuwe waypoint in op de optimale plek in de route.</li>
+      <li><b>Aantal waypoints</b>: slider in het action-paneel. Minder waypoints geeft de router meer vrijheid; meer waypoints volgt de grens nauwkeuriger.</li>
+      <li><b>Opnieuw "Toon route"</b> klikken reset alle handmatige wijzigingen naar auto-gegenereerde waypoints.</li>
+    </ul>
+
+    <h4>Kaart-bedieningen</h4>
+    <ul>
+      <li><b>📏 Ranking</b> (linksonder): bekijk buurten of wijken gesorteerd op omtrek; klik een item om er direct naartoe te zoomen.</li>
+      <li><b>Legenda</b> (rechtsonder): klik op een wijk-naam om alleen die wijk uit te lichten. Gebruik de <b>opacity slider</b> om de vulling transparanter te maken.</li>
+      <li><b>Gemeente wisselen</b>: typ in de zoekbalk rechtsboven.</li>
+    </ul>
+
+    <h4>Tips</h4>
+    <ul>
+      <li>Krijg je een routing-fout aan de rand van de gemeente? <b>Verlaag</b> het aantal waypoints, of <b>wissel</b> van pad-type.</li>
+      <li>Grote wijken geven lange routes. Gebruik <b>Ranking</b> → "Kort → lang" om een passende grootte te vinden.</li>
+      <li>"Hiking" is de beste default voor hardlopen (combineert paden met straten).</li>
+      <li>De checkbox <b>"Backtracks verwijderen"</b> strip automatisch doodloop-uitstapjes uit de route.</li>
+    </ul>
+
+    </div>
   </div>
 </div>
 
