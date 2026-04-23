@@ -1337,7 +1337,8 @@ function ensurePatternDefs() {
   });
 }
 
-// Geef gelopen polygonen een streeppatroon-fill; anders normale fill
+// Geef gelopen polygonen een streeppatroon-fill; anders wis de inline
+// style.fill zodat Leaflet's setStyle() de solid color kan terugzetten.
 function applyCompletionPatterns() {
   if (!geoLayer) return;
   ensurePatternDefs();
@@ -1349,6 +1350,10 @@ function applyCompletionPatterns() {
       const id = `stripe-${p.wijkcode}`;
       layer._path.style.fill = `url(#${id})`;
       layer._path.setAttribute('fill', `url(#${id})`);
+    } else {
+      // Inline style.fill heeft voorrang op het fill-attribuut;
+      // wissen zodat de solid fillColor uit styleFeature zichtbaar wordt.
+      layer._path.style.removeProperty('fill');
     }
   });
 }
