@@ -186,17 +186,6 @@
     background: linear-gradient(90deg, #2a7e3a, #4daf4a);
     transition: width 0.3s;
   }
-  .done-marker {
-    background: rgba(42,126,58,0.92);
-    color: #fff;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    text-align: center;
-    line-height: 18px;
-    font-size: 12px;
-    font-weight: 700;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-  }
   .loading {
     position: fixed;
     top: 50%; left: 50%;
@@ -239,7 +228,7 @@
 
     <h4>Stappenplan</h4>
     <ol>
-      <li><b>Vul gemeentenaam in</b> in de zoekbalk rechtsboven en selecteer de gemeente uit de lijst.</li>
+      <li>De app <b>detecteert je gemeente automatisch</b> bij eerste gebruik via apparaatlocatie (mits je toestemming geeft). Je kunt altijd handmatig wisselen via de zoekbalk rechtsboven.</li>
       <li><b>Kies buurten of wijken</b> via de radio-knoppen onder de zoekbalk.</li>
       <li><b>Klik op een buurt (of wijk)</b> op de kaart om hem te selecteren.</li>
       <li><b>Kies een pad-type</b> (hiking, trekking, shortest of safety) in het paneel linksboven.</li>
@@ -273,7 +262,7 @@
     <h4>Voortgang bijhouden</h4>
     <ul>
       <li>Vink <b>"✓ Gelopen"</b> aan in het action-paneel als je een route hebt afgerond.</li>
-      <li>Gelopen buurten/wijken krijgen een <b>groene rand</b> en een <b>✓</b> in het midden op de kaart.</li>
+      <li>Gelopen buurten/wijken krijgen een <b>groene rand</b> en een <b>schuin-streep patroon</b> in de wijk-kleur.</li>
       <li>In de <b>Ranking</b> modal zie je een voortgangsbalk (bijv. "12 van 68 gelopen") en een ✓ naast afgeronde items.</li>
       <li>Voortgang wordt lokaal in de browser opgeslagen, <b>per gemeente gescheiden</b> — je kunt meerdere steden parallel tracken.</li>
       <li>Reset-knop staat rechts in de Ranking modal.</li>
@@ -335,9 +324,40 @@ const palette = [
   '#1f77b4', '#ff9896', '#9467bd', '#8c564b', '#bcbd22'
 ];
 
-// Gemeente via URL-parameter ?gm=GM0344 (standaard: Deventer)
+// Gemeente via URL-parameter ?gm=GM0344, anders auto-detect via apparaatlocatie
 const urlParams = new URLSearchParams(window.location.search);
-const gemeenteCode = urlParams.get('gm') || 'GM0150';
+const requestedGm = urlParams.get('gm');
+const cachedGm = sessionStorage.getItem('detectedGemeente');
+const gemeenteCode = requestedGm || cachedGm || 'GM0150';
+
+// Als er geen URL-param en geen sessiecache is, probeer automatisch de
+// gemeente te bepalen op basis van de apparaatlocatie. Bij succes (en afwijking)
+// redirecten we éénmaal naar de juiste ?gm=code.
+if (!requestedGm && !cachedGm && navigator.geolocation) {
+  const loader = document.getElementById('loading');
+  if (loader) loader.textContent = 'Locatie detecteren...';
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      const { latitude, longitude } = pos.coords;
+      const url = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/reverse?lat=${latitude}&lon=${longitude}&type=gemeente&rows=1`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`reverse HTTP ${r.status}`);
+      const data = await r.json();
+      const doc = data.response && data.response.docs && data.response.docs[0];
+      if (doc && doc.gemeentecode) {
+        const code = `GM${doc.gemeentecode}`;
+        sessionStorage.setItem('detectedGemeente', code);
+        if (code !== gemeenteCode) {
+          window.location.replace(`${window.location.pathname}?gm=${code}`);
+        }
+      }
+    } catch (e) {
+      console.warn('Gemeente-detectie mislukt', e);
+    }
+  }, (err) => {
+    console.log('Locatie niet beschikbaar:', err && err.message);
+  }, { timeout: 10000, maximumAge: 600000, enableHighAccuracy: false });
+}
 
 // State (moet boven info/legend controls staan die ze in templates gebruiken)
 let buurtenGj = null;
@@ -503,7 +523,7 @@ legend.render = function () {
   slider.addEventListener('input', () => {
     fillOpacity = slider.value / 100;
     value.textContent = slider.value + '%';
-    geoLayer.setStyle(styleFeature);
+    geoLayer.setStyle(styleFeature); applyCompletionPatterns();
   });
 
   this._div.querySelectorAll('.item').forEach(el => {
@@ -512,13 +532,13 @@ legend.render = function () {
       selectedWijkcode = (selectedWijkcode === code) ? null : code;
       this._div.querySelectorAll('.item').forEach(i =>
         i.classList.toggle('active', i.dataset.code === selectedWijkcode));
-      geoLayer.setStyle(styleFeature);
+      geoLayer.setStyle(styleFeature); applyCompletionPatterns();
     });
   });
   this._div.querySelector('#resetFilter').addEventListener('click', () => {
     selectedWijkcode = null;
     this._div.querySelectorAll('.item').forEach(i => i.classList.remove('active'));
-    geoLayer.setStyle(styleFeature);
+    geoLayer.setStyle(styleFeature); applyCompletionPatterns();
   });
 };
 legend.addTo(map);
@@ -595,10 +615,15 @@ action.show = function (feature) {
     ? `<span class="wijk-tag" style="background:${w.color}">Wijk</span>`
     : `<span class="wijk-tag" style="background:${w.color}">${w.naam}</span>`;
   const done = isCompleted(p.buurtcode, !!p.__isWijk);
+  const perimeterKm = (computePerimeter(feature.geometry) / 1000);
   this._div.innerHTML = `
     <span class="close" id="closeAction">&times;</span>
     <h4>${p.buurtnaam}</h4>
     ${wijkTag}
+    <div style="margin-top:6px;font-size:12px;color:#333;">
+      Contour-omtrek: <b>${perimeterKm.toFixed(2)} km</b>
+      <span style="color:#999;font-size:10px;">(indicatie; route wijkt meestal iets af)</span>
+    </div>
     <label style="display:block;margin-top:6px;font-size:11px;cursor:pointer;">
       <input type="checkbox" id="completedChk" ${done ? 'checked' : ''}> ✓ Gelopen
     </label>
@@ -630,7 +655,7 @@ action.show = function (feature) {
   `;
   this._div.querySelector('#completedChk').onchange = (e) => {
     toggleCompleted(p.buurtcode, !!p.__isWijk);
-    geoLayer.setStyle(styleFeature);
+    geoLayer.setStyle(styleFeature); applyCompletionPatterns();
     renderDoneMarkers();
     // Ranking-modal ook updaten als hij open is
     const rankActive = document.querySelector('#rankSort button.active');
@@ -1189,32 +1214,60 @@ function styleFeature(feature) {
   };
 }
 
-// Render ✓-markers in het midden van elke gelopen buurt/wijk
-function renderDoneMarkers() {
-  if (doneLayer) {
-    map.removeLayer(doneLayer);
-    doneLayer = null;
+// Voeg SVG-<defs> met diagonale streeppatronen toe (een per wijk-kleur)
+function ensurePatternDefs() {
+  const pane = map.getPanes().overlayPane;
+  const svg = pane && pane.querySelector('svg');
+  if (!svg) return;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  let defs = svg.querySelector('defs');
+  if (!defs) {
+    defs = document.createElementNS(SVG_NS, 'defs');
+    svg.insertBefore(defs, svg.firstChild);
   }
+  Object.values(wijkByCode).forEach(w => {
+    const id = `stripe-${w.code}`;
+    if (defs.querySelector(`#${CSS.escape(id)}`)) return;
+    const pattern = document.createElementNS(SVG_NS, 'pattern');
+    pattern.setAttribute('id', id);
+    pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+    pattern.setAttribute('width', '10');
+    pattern.setAttribute('height', '10');
+    pattern.setAttribute('patternTransform', 'rotate(45)');
+    const bg = document.createElementNS(SVG_NS, 'rect');
+    bg.setAttribute('width', '10');
+    bg.setAttribute('height', '10');
+    bg.setAttribute('fill', w.color);
+    pattern.appendChild(bg);
+    const stripe = document.createElementNS(SVG_NS, 'rect');
+    stripe.setAttribute('width', '5');
+    stripe.setAttribute('height', '10');
+    stripe.setAttribute('fill', '#ffffff');
+    stripe.setAttribute('opacity', '0.55');
+    pattern.appendChild(stripe);
+    defs.appendChild(pattern);
+  });
+}
+
+// Geef gelopen polygonen een streeppatroon-fill; anders normale fill
+function applyCompletionPatterns() {
   if (!geoLayer) return;
-  doneLayer = L.layerGroup();
+  ensurePatternDefs();
   geoLayer.eachLayer(layer => {
+    if (!layer._path) return;
     const p = layer.feature && layer.feature.properties;
     if (!p) return;
-    if (!isCompleted(p.buurtcode, !!p.__isWijk)) return;
-    const center = layer.getBounds().getCenter();
-    const marker = L.marker(center, {
-      icon: L.divIcon({
-        className: 'done-marker',
-        html: '✓',
-        iconSize: [22, 22],
-        iconAnchor: [11, 11]
-      }),
-      interactive: false,
-      keyboard: false
-    });
-    doneLayer.addLayer(marker);
+    if (isCompleted(p.buurtcode, !!p.__isWijk)) {
+      const id = `stripe-${p.wijkcode}`;
+      layer._path.style.fill = `url(#${id})`;
+      layer._path.setAttribute('fill', `url(#${id})`);
+    }
   });
-  doneLayer.addTo(map);
+}
+
+// Backwards-compat: oude calls naar renderDoneMarkers verwijzen nu hier
+function renderDoneMarkers() {
+  applyCompletionPatterns();
 }
 
 function onEachFeature(feature, layer) {
@@ -1238,6 +1291,12 @@ function onEachFeature(feature, layer) {
     },
     mouseout: () => {
       geoLayer.resetStyle(layer);
+      // Re-apply streeppatroon als deze buurt/wijk gelopen is
+      const pr = layer.feature && layer.feature.properties;
+      if (pr && isCompleted(pr.buurtcode, !!pr.__isWijk) && layer._path) {
+        layer._path.style.fill = `url(#stripe-${pr.wijkcode})`;
+        layer._path.setAttribute('fill', `url(#stripe-${pr.wijkcode})`);
+      }
       info.update();
     },
     click: (e) => {
@@ -1376,7 +1435,7 @@ load().catch(e => {
       const naam = window._gemeenteNaam || 'deze gemeente';
       if (!confirm(`Voortgang voor ${naam} volledig resetten?`)) return;
       resetCompleted();
-      if (geoLayer) geoLayer.setStyle(styleFeature);
+      if (geoLayer) geoLayer.setStyle(styleFeature); applyCompletionPatterns();
       renderDoneMarkers();
       const activeSort = document.querySelector('#rankSort button.active');
       renderRankList(activeSort ? activeSort.dataset.sort : 'perimAsc');
