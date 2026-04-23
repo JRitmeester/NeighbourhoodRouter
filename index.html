@@ -202,7 +202,14 @@
       <li><b>Vul gemeentenaam in</b> in de zoekbalk rechtsboven en selecteer de gemeente.</li>
       <li><b>Kies een buurt</b> op de kaart door erop te klikken.</li>
       <li><b>Kies een pad-type</b> (hiking, trekking, shortest of safety) in het paneel linksboven.</li>
-      <li><b>Genereer de route</b> met "Toon route op kaart" en tweak waar nodig: sleep waypoints, verwijder er een met rechtermuisklik, of pas het aantal waypoints aan.</li>
+      <li><b>Genereer de route</b> met "Toon route op kaart" en tweak waar nodig:
+        <ul style="margin:4px 0 0 0;padding-left:18px;">
+          <li>Sleep een waypoint om hem te verschuiven</li>
+          <li>Klik een waypoint voor opties (<b>verwijderen</b> of <b>als startpunt instellen</b>)</li>
+          <li><b>Shift+klik</b> ergens op de kaart om een waypoint in te voegen op de optimale plek</li>
+          <li>Pas het aantal waypoints aan met de slider voor een andere verdeling</li>
+        </ul>
+      </li>
       <li><b>Exporteer als GPX</b> met "Download als GPX".</li>
       <li><b>Importeer het GPX-bestand</b> in Komoot, Strava, Garmin Connect of je favoriete hardloop-app.</li>
     </ol>
@@ -266,6 +273,12 @@ let rankingMode = 'buurten'; // ranking-modal: kan afwijken van displayMode
 
 // Kaart opzetten
 const map = L.map('map').setView([52.26, 6.19], 11);
+// Shift+klik ergens op de kaart: voeg waypoint in (alleen als er een route loopt)
+map.on('click', (e) => {
+  if (!e.originalEvent || !e.originalEvent.shiftKey) return;
+  if (!selectedBuurtFeature || currentWaypoints.length < 2) return;
+  addWaypointOptimal(e.latlng.lng, e.latlng.lat);
+});
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CARTO | Contouren: PDOK / CBS 2023',
   maxZoom: 19,
@@ -598,7 +611,45 @@ function renderWaypointMarkers() {
       icon: waypointIcon(i + 1, i === 0),
       zIndexOffset: 1000
     }).addTo(map);
-    marker.bindTooltip(`Waypoint ${i + 1}${i === 0 ? ' (start/eind)' : ''}<br><small>sleep om te verschuiven · rechterklik om te verwijderen</small>`, { direction: 'top' });
+    marker.bindTooltip(
+      `Waypoint ${i + 1}${i === 0 ? ' (start/eind)' : ''}` +
+      `<br><small>sleep om te verschuiven · klik voor opties</small>`,
+      { direction: 'top' }
+    );
+    const isStart = (i === 0);
+    const btnStyle = 'padding:4px 8px;border:1px solid #ccc;border-radius:3px;background:#f7f7f7;cursor:pointer;font-size:12px;';
+    const popupHtml = `
+      <div style="min-width:150px;font-size:12px;">
+        <b>Waypoint ${i + 1}</b>${isStart ? ' <span style="color:#888;">(start/eind)</span>' : ''}
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+          ${isStart ? '' : `<button data-wp-action="start" style="${btnStyle}">★ Maak startpunt</button>`}
+          <button data-wp-action="delete" style="${btnStyle}color:#c00;">✕ Verwijder waypoint</button>
+        </div>
+      </div>`;
+    marker.bindPopup(popupHtml, { closeButton: true, autoClose: true });
+    marker.on('popupopen', (e) => {
+      const root = e.popup.getElement();
+      root.querySelectorAll('button[data-wp-action]').forEach(btn => {
+        btn.onclick = () => {
+          const act = btn.dataset.wpAction;
+          marker.closePopup();
+          if (act === 'start') {
+            setWaypointAsStart(i);
+          } else if (act === 'delete') {
+            if (currentWaypoints.length - 1 <= 4) {
+              action.setStatus('Minimum 4 waypoints vereist');
+              return;
+            }
+            currentWaypoints.splice(i, 1);
+            if (i === 0) {
+              currentWaypoints[currentWaypoints.length - 1] = currentWaypoints[0];
+            }
+            renderWaypointMarkers();
+            fetchAndRenderRoute();
+          }
+        };
+      });
+    });
     marker.on('dragend', () => {
       const ll = marker.getLatLng();
       currentWaypoints[i] = [ll.lng, ll.lat];
@@ -607,21 +658,54 @@ function renderWaypointMarkers() {
       }
       fetchAndRenderRoute();
     });
-    marker.on('contextmenu', (e) => {
-      L.DomEvent.preventDefault(e);
-      if (currentWaypoints.length - 1 <= 4) {
-        action.setStatus('Minimum 4 waypoints vereist');
-        return;
-      }
-      currentWaypoints.splice(i, 1);
-      if (i === 0) {
-        currentWaypoints[currentWaypoints.length - 1] = currentWaypoints[0];
-      }
-      renderWaypointMarkers();
-      fetchAndRenderRoute();
-    });
     waypointMarkers.push(marker);
   }
+}
+
+// Roteer currentWaypoints zodat waypoint[index] de nieuwe start wordt
+function setWaypointAsStart(index) {
+  if (index === 0 || currentWaypoints.length < 3) return;
+  const real = currentWaypoints.slice(0, -1); // laatste is duplicaat van eerste
+  const n = real.length;
+  const rotated = [];
+  for (let i = 0; i < n; i++) {
+    const src = real[(index + i) % n];
+    rotated.push([src[0], src[1]]);
+  }
+  rotated.push([rotated[0][0], rotated[0][1]]); // sluit de lus
+  currentWaypoints = rotated;
+  renderWaypointMarkers();
+  fetchAndRenderRoute();
+}
+
+// Planar afstand van punt tot segment (OK voor kleine gebieden)
+function distToSegment(p, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const px = a[0] + t * dx, py = a[1] + t * dy;
+  return Math.hypot(p[0] - px, p[1] - py);
+}
+
+// Voeg een nieuwe waypoint in op de optimale positie in de route (tussen twee bestaande)
+function addWaypointOptimal(lon, lat) {
+  if (currentWaypoints.length < 2) return;
+  const p = [lon, lat];
+  let bestIdx = 1;
+  let bestDist = Infinity;
+  for (let i = 0; i < currentWaypoints.length - 1; i++) {
+    const d = distToSegment(p, currentWaypoints[i], currentWaypoints[i + 1]);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i + 1;
+    }
+  }
+  currentWaypoints.splice(bestIdx, 0, p);
+  renderWaypointMarkers();
+  fetchAndRenderRoute();
 }
 action.addTo(map);
 
@@ -947,13 +1031,15 @@ ${pts}
 
 function downloadCachedGpx() {
   if (!cachedRoute) return;
-  const safe = cachedRoute.buurtnaam.replace(/[^\w\-]+/g, '_');
-  const name = `Deventer ${cachedRoute.buurtnaam} (${cachedRoute.profile})`;
+  const gemeente = window._gemeenteNaam || 'gemeente';
+  const safeGemeente = gemeente.replace(/[^\w\-]+/g, '_');
+  const safeBuurt = cachedRoute.buurtnaam.replace(/[^\w\-]+/g, '_');
+  const name = `${gemeente} ${cachedRoute.buurtnaam} (${cachedRoute.profile})`;
   const gpx = buildGpxFromCoords(name, cachedRoute.coords);
   const blob = new Blob([gpx], { type: 'application/gpx+xml' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `Deventer_${safe}_${cachedRoute.profile}.gpx`;
+  a.download = `${safeGemeente}_${safeBuurt}_${cachedRoute.profile}.gpx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -998,6 +1084,8 @@ function onEachFeature(feature, layer) {
       info.update();
     },
     click: (e) => {
+      // Shift+klik wordt afgehandeld door de map-level handler (waypoint toevoegen)
+      if (e.originalEvent && e.originalEvent.shiftKey) return;
       selectedBuurtFeature = feature;
       map.fitBounds(e.target.getBounds());
       action.show(feature);
