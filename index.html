@@ -53,37 +53,116 @@
   .opacity-control label { display: block; margin-bottom: 3px; }
   .opacity-control input[type="range"] { width: 100%; }
   .action-panel {
-    padding: 10px 12px;
+    padding: 10px 14px;
     background: white;
     box-shadow: 0 1px 6px rgba(0,0,0,0.25);
     border-radius: 6px;
     font-size: 13px;
-    max-width: 300px;
+    width: 260px;
   }
-  .action-panel h4 { margin: 0 0 6px; font-size: 14px; }
-  .action-panel button {
-    display: block;
-    width: 100%;
-    margin-top: 6px;
-    padding: 6px 10px;
-    background: #2c7fb8;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .action-panel button:hover { background: #1f5f8b; }
-  .action-panel button:disabled { background: #999; cursor: wait; }
-  .action-panel select { width: 100%; margin-top: 4px; padding: 3px; font-size: 12px; }
   .action-panel .close {
     float: right;
     cursor: pointer;
     color: #888;
-    font-size: 16px;
+    font-size: 18px;
     line-height: 14px;
+    margin-left: 6px;
   }
-  .action-panel .status { margin-top: 6px; font-size: 11px; color: #555; }
+  .action-panel .close:hover { color: #333; }
+  .ap-header h4 { margin: 0 0 4px; font-size: 15px; line-height: 1.2; }
+  .ap-section {
+    padding: 9px 0;
+    border-top: 1px solid #ececec;
+  }
+  .ap-section:first-of-type { border-top: none; padding-top: 4px; }
+  .ap-section:last-child { padding-bottom: 0; }
+  .ap-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+  .ap-stat b { color: #222; font-size: 13px; }
+  .ap-stat small { color: #999; font-size: 10px; }
+  .ap-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.3;
+  }
+  .ap-toggle input { margin: 0; flex-shrink: 0; }
+  .ap-field { display: block; font-size: 11px; margin-bottom: 8px; }
+  .ap-field:last-child { margin-bottom: 0; }
+  .ap-field > .ap-label {
+    display: block;
+    color: #666;
+    margin-bottom: 3px;
+  }
+  .ap-field select,
+  .ap-field input[type="range"] {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .ap-field select {
+    padding: 4px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: white;
+  }
+  .ap-btn {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f5f5f5;
+    color: #333;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    box-sizing: border-box;
+  }
+  .ap-btn + .ap-btn { margin-top: 6px; }
+  .ap-btn:hover:not(:disabled) { background: #e8e8e8; }
+  .ap-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .ap-btn-primary {
+    background: #2c7fb8;
+    border-color: #2c7fb8;
+    color: white;
+  }
+  .ap-btn-primary:hover:not(:disabled) { background: #1f5f8b; }
+  details.ap-section > summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: #555;
+    padding: 4px 0;
+    user-select: none;
+    list-style: none;
+  }
+  details.ap-section > summary::-webkit-details-marker { display: none; }
+  details.ap-section > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s;
+    color: #888;
+  }
+  details[open].ap-section > summary::before { transform: rotate(90deg); }
+  details.ap-section > summary:hover { color: #222; }
+  details.ap-section[open] > summary { margin-bottom: 6px; }
+  .ap-status {
+    font-size: 11px;
+    color: #555;
+    margin-top: 6px;
+    line-height: 1.4;
+    min-height: 15px;
+  }
   .help-btn {
     display: inline-flex;
     align-items: center;
@@ -618,40 +697,49 @@ action.show = function (feature) {
   const perimeterKm = (computePerimeter(feature.geometry) / 1000);
   this._div.innerHTML = `
     <span class="close" id="closeAction">&times;</span>
-    <h4>${p.buurtnaam}</h4>
-    ${wijkTag}
-    <div style="margin-top:6px;font-size:12px;color:#333;">
-      Contour-omtrek: <b>${perimeterKm.toFixed(2)} km</b>
-      <span style="color:#999;font-size:10px;">(indicatie; route wijkt meestal iets af)</span>
+    <div class="ap-section ap-header">
+      <h4>${p.buurtnaam}</h4>
+      ${wijkTag}
     </div>
-    <label style="display:block;margin-top:6px;font-size:11px;cursor:pointer;">
-      <input type="checkbox" id="completedChk" ${done ? 'checked' : ''}> ✓ Gelopen
-    </label>
-    <div>
-      <label style="font-size:11px;display:block;margin-top:8px;">Profiel:</label>
-      <select id="profileSelect">
-        <option value="hiking-beta">Hiking (paden + straten)</option>
-        <option value="trekking">Trekking (bredere wegen ok)</option>
-        <option value="shortest">Shortest (kortste route)</option>
-        <option value="safety">Safety (veilige fietsroutes)</option>
-      </select>
-    </div>
-    <div style="margin-top:8px;">
-      <label style="font-size:11px;display:block;">
-        Waypoints: <span id="wpValue">20</span>
-        <br><small style="color:#777;">minder = meer vrijheid voor router</small>
+    <div class="ap-section">
+      <div class="ap-stat">
+        <span>Contour-omtrek</span>
+        <b>${perimeterKm.toFixed(2)} km</b>
+      </div>
+      <label class="ap-toggle">
+        <input type="checkbox" id="completedChk" ${done ? 'checked' : ''}>
+        <span>Gelopen</span>
       </label>
-      <input type="range" id="wpSlider" min="6" max="40" value="20" style="width:100%;">
     </div>
-    <input type="hidden" id="insetSlider" value="5">
-    <span id="insetValue" style="display:none;">5</span>
-    <label style="font-size:11px;display:block;margin-top:6px;">
-      <input type="checkbox" id="cleanBacktracks" checked>
-      Backtracks & doodloop-uitstapjes verwijderen
-    </label>
-    <button id="previewRouteBtn">↗ Toon route op kaart</button>
-    <button id="downloadGpxBtn" disabled style="background:#999;">⬇ Download als GPX</button>
-    <div class="status" id="gpxStatus">Klik 'Toon route' om te berekenen.</div>
+    <div class="ap-section">
+      <label class="ap-field">
+        <span class="ap-label">Pad-type</span>
+        <select id="profileSelect">
+          <option value="hiking-beta">Hiking (paden + straten)</option>
+          <option value="trekking">Trekking (bredere wegen ok)</option>
+          <option value="shortest">Shortest (kortste route)</option>
+          <option value="safety">Safety (veilige fietsroutes)</option>
+        </select>
+      </label>
+      <button id="previewRouteBtn" class="ap-btn ap-btn-primary">↗ Toon route op kaart</button>
+    </div>
+    <details class="ap-section" id="advancedDetails">
+      <summary>Geavanceerd</summary>
+      <label class="ap-field">
+        <span class="ap-label">Waypoints: <b id="wpValue">20</b> <small style="color:#999;">(minder = meer vrijheid voor router)</small></span>
+        <input type="range" id="wpSlider" min="6" max="40" value="20">
+      </label>
+      <label class="ap-toggle">
+        <input type="checkbox" id="cleanBacktracks" checked>
+        <span>Backtracks & doodloop-uitstapjes verwijderen</span>
+      </label>
+      <input type="hidden" id="insetSlider" value="5">
+      <span id="insetValue" style="display:none;">5</span>
+    </details>
+    <div class="ap-section">
+      <button id="downloadGpxBtn" class="ap-btn" disabled>⬇ Download als GPX</button>
+      <div class="ap-status" id="gpxStatus">Klik 'Toon route' om te berekenen.</div>
+    </div>
   `;
   this._div.querySelector('#completedChk').onchange = (e) => {
     toggleCompleted(p.buurtcode, !!p.__isWijk);
@@ -692,7 +780,7 @@ action.show = function (feature) {
     } else {
       const btn = this._div.querySelector('#downloadGpxBtn');
       btn.disabled = true;
-      btn.style.background = '#999';
+      btn.classList.remove('ap-btn-primary');
       action.setStatus('Profiel gewijzigd — klik Toon route.');
     }
   };
@@ -717,7 +805,7 @@ action.enableDownload = function () {
   const btn = this._div.querySelector('#downloadGpxBtn');
   if (btn) {
     btn.disabled = false;
-    btn.style.background = '#2c7fb8';
+    btn.classList.add('ap-btn-primary');
   }
 };
 
