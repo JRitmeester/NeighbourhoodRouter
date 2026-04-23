@@ -173,6 +173,30 @@
   .rank-item .swatch { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #333; flex-shrink: 0; }
   .rank-item .naam { flex: 1; }
   .rank-item .km { color: #555; font-variant-numeric: tabular-nums; }
+  .rank-item .done-check { color: #2a7e3a; font-weight: bold; min-width: 14px; }
+  .progress-bar {
+    height: 6px;
+    background: #eee;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 4px 0 10px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2a7e3a, #4daf4a);
+    transition: width 0.3s;
+  }
+  .done-marker {
+    background: rgba(42,126,58,0.92);
+    color: #fff;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 18px;
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  }
   .loading {
     position: fixed;
     top: 50%; left: 50%;
@@ -192,6 +216,8 @@
   <div class="help-modal" style="max-width:420px;">
     <span class="help-close" id="rankClose">&times;</span>
     <h3 id="rankTitle">Buurten op omtrek</h3>
+    <div id="rankProgress" style="font-size:12px;color:#444;"></div>
+    <div class="progress-bar"><div class="progress-bar-fill" id="rankProgressFill" style="width:0%"></div></div>
     <div class="rank-sort" id="rankType">
       <button data-type="buurten" class="active">Buurten</button>
       <button data-type="wijken">Wijken</button>
@@ -200,6 +226,7 @@
       <button data-sort="perimAsc" class="active">Kort → lang</button>
       <button data-sort="perimDesc">Lang → kort</button>
       <button data-sort="name">Op naam</button>
+      <button id="rankResetBtn" style="float:right;background:#f7f7f7;color:#c00;border:1px solid #e0c0c0;">Reset voortgang</button>
     </div>
     <div class="rank-list" id="rankList"></div>
   </div>
@@ -241,6 +268,15 @@
       <li><b>📏 Ranking</b> (linksonder): bekijk buurten of wijken gesorteerd op omtrek; klik een item om er direct naartoe te zoomen.</li>
       <li><b>Legenda</b> (rechtsonder): klik op een wijk-naam om alleen die wijk uit te lichten. Gebruik de <b>opacity slider</b> om de vulling transparanter te maken.</li>
       <li><b>Gemeente wisselen</b>: typ in de zoekbalk rechtsboven.</li>
+    </ul>
+
+    <h4>Voortgang bijhouden</h4>
+    <ul>
+      <li>Vink <b>"✓ Gelopen"</b> aan in het action-paneel als je een route hebt afgerond.</li>
+      <li>Gelopen buurten/wijken krijgen een <b>groene rand</b> en een <b>✓</b> in het midden op de kaart.</li>
+      <li>In de <b>Ranking</b> modal zie je een voortgangsbalk (bijv. "12 van 68 gelopen") en een ✓ naast afgeronde items.</li>
+      <li>Voortgang wordt lokaal in de browser opgeslagen, <b>per gemeente gescheiden</b> — je kunt meerdere steden parallel tracken.</li>
+      <li>Reset-knop staat rechts in de Ranking modal.</li>
     </ul>
 
     <h4>Tips</h4>
@@ -308,6 +344,38 @@ let buurtenGj = null;
 let wijkenGj = null;
 let displayMode = 'buurten'; // kaartlaag: 'buurten' of 'wijken'
 let rankingMode = 'buurten'; // ranking-modal: kan afwijken van displayMode
+
+// Voortgang (gelopen buurten/wijken) per gemeente, opgeslagen in localStorage
+const STORAGE_PREFIX = 'neighbourhoodRouter';
+function storageKey(type) { return `${STORAGE_PREFIX}:${gemeenteCode}:${type}`; }
+function loadCompletedSet(type) {
+  try {
+    const raw = localStorage.getItem(storageKey(type));
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+function saveCompletedSet(type, set) {
+  try { localStorage.setItem(storageKey(type), JSON.stringify([...set])); }
+  catch (e) { console.warn('localStorage opslaan mislukt', e); }
+}
+let completedBuurten = loadCompletedSet('buurten');
+let completedWijken = loadCompletedSet('wijken');
+function isCompleted(code, isWijk) {
+  return (isWijk ? completedWijken : completedBuurten).has(code);
+}
+function toggleCompleted(code, isWijk) {
+  const set = isWijk ? completedWijken : completedBuurten;
+  if (set.has(code)) set.delete(code);
+  else set.add(code);
+  saveCompletedSet(isWijk ? 'wijken' : 'buurten', set);
+}
+function resetCompleted() {
+  completedBuurten = new Set();
+  completedWijken = new Set();
+  saveCompletedSet('buurten', completedBuurten);
+  saveCompletedSet('wijken', completedWijken);
+}
+let doneLayer = null; // Leaflet layergroup met ✓-markers
 
 // Kaart opzetten
 const map = L.map('map').setView([52.26, 6.19], 11);
@@ -526,10 +594,14 @@ action.show = function (feature) {
   const wijkTag = p.__isWijk
     ? `<span class="wijk-tag" style="background:${w.color}">Wijk</span>`
     : `<span class="wijk-tag" style="background:${w.color}">${w.naam}</span>`;
+  const done = isCompleted(p.buurtcode, !!p.__isWijk);
   this._div.innerHTML = `
     <span class="close" id="closeAction">&times;</span>
     <h4>${p.buurtnaam}</h4>
     ${wijkTag}
+    <label style="display:block;margin-top:6px;font-size:11px;cursor:pointer;">
+      <input type="checkbox" id="completedChk" ${done ? 'checked' : ''}> ✓ Gelopen
+    </label>
     <div>
       <label style="font-size:11px;display:block;margin-top:8px;">Profiel:</label>
       <select id="profileSelect">
@@ -556,6 +628,14 @@ action.show = function (feature) {
     <button id="downloadGpxBtn" disabled style="background:#999;">⬇ Download als GPX</button>
     <div class="status" id="gpxStatus">Klik 'Toon route' om te berekenen.</div>
   `;
+  this._div.querySelector('#completedChk').onchange = (e) => {
+    toggleCompleted(p.buurtcode, !!p.__isWijk);
+    geoLayer.setStyle(styleFeature);
+    renderDoneMarkers();
+    // Ranking-modal ook updaten als hij open is
+    const rankActive = document.querySelector('#rankSort button.active');
+    if (rankActive) renderRankList(rankActive.dataset.sort);
+  };
   this._div.querySelector('#closeAction').onclick = () => {
     this._div.style.display = 'none';
     selectedBuurtFeature = null;
@@ -834,13 +914,23 @@ function renderRankList(sortKey) {
   if (!div) return;
   div.innerHTML = sorted.map((b, i) => {
     const w = wijkByCode[b.wijkcode] || { color: '#888', naam: '' };
-    return `<div class="rank-item" data-code="${b.buurtcode}">
+    const done = isCompleted(b.buurtcode, !!b.isWijk);
+    return `<div class="rank-item" data-code="${b.buurtcode}" style="${done ? 'background:#eaf6ec;' : ''}">
       <span class="idx">${i + 1}.</span>
       <span class="swatch" style="background:${w.color}"></span>
       <span class="naam">${b.buurtnaam}<br><small style="color:#888;">${w.naam}</small></span>
+      <span class="done-check">${done ? '✓' : ''}</span>
       <span class="km">${(b.perimeterM / 1000).toFixed(2)} km</span>
     </div>`;
   }).join('');
+  // Voortgangsbalk bijwerken
+  const total = sorted.length;
+  const doneCount = sorted.filter(b => isCompleted(b.buurtcode, !!b.isWijk)).length;
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+  const progressText = document.getElementById('rankProgress');
+  const progressFill = document.getElementById('rankProgressFill');
+  if (progressText) progressText.textContent = `Voortgang: ${doneCount} van ${total} gelopen (${pct}%)`;
+  if (progressFill) progressFill.style.width = `${pct}%`;
   div.querySelectorAll('.rank-item').forEach(el => {
     el.addEventListener('click', () => {
       const code = el.dataset.code;
@@ -1089,13 +1179,42 @@ function styleFeature(feature) {
   const w = wijkByCode[feature.properties.wijkcode];
   const color = w ? w.color : '#ccc';
   const faded = selectedWijkcode && feature.properties.wijkcode !== selectedWijkcode;
+  const done = isCompleted(feature.properties.buurtcode, !!feature.properties.__isWijk);
   return {
-    color: '#222',
-    weight: faded ? 0.5 : 1,
+    color: done ? '#2a7e3a' : '#222',
+    weight: done ? 2.5 : (faded ? 0.5 : 1),
     opacity: faded ? 0.3 : 1,
     fillColor: color,
     fillOpacity: faded ? Math.min(fillOpacity * 0.1, 0.05) : fillOpacity
   };
+}
+
+// Render ✓-markers in het midden van elke gelopen buurt/wijk
+function renderDoneMarkers() {
+  if (doneLayer) {
+    map.removeLayer(doneLayer);
+    doneLayer = null;
+  }
+  if (!geoLayer) return;
+  doneLayer = L.layerGroup();
+  geoLayer.eachLayer(layer => {
+    const p = layer.feature && layer.feature.properties;
+    if (!p) return;
+    if (!isCompleted(p.buurtcode, !!p.__isWijk)) return;
+    const center = layer.getBounds().getCenter();
+    const marker = L.marker(center, {
+      icon: L.divIcon({
+        className: 'done-marker',
+        html: '✓',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      }),
+      interactive: false,
+      keyboard: false
+    });
+    doneLayer.addLayer(marker);
+  });
+  doneLayer.addTo(map);
 }
 
 function onEachFeature(feature, layer) {
@@ -1163,8 +1282,10 @@ function prepWijkFeatures(gj) {
 
 function renderLayer() {
   if (geoLayer) map.removeLayer(geoLayer);
+  if (doneLayer) { map.removeLayer(doneLayer); doneLayer = null; }
   const data = displayMode === 'wijken' ? prepWijkFeatures(wijkenGj) : buurtenGj;
   geoLayer = L.geoJSON(data, { style: styleFeature, onEachFeature }).addTo(map);
+  renderDoneMarkers();
   // Selectie/route resetten bij mode-wissel
   action.hide();
   selectedBuurtFeature = null;
@@ -1246,6 +1367,19 @@ load().catch(e => {
         btn.classList.add('active');
         renderRankList(btn.dataset.sort);
       });
+    });
+  }
+  // Reset-voortgang knop
+  const resetBtn = document.getElementById('rankResetBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const naam = window._gemeenteNaam || 'deze gemeente';
+      if (!confirm(`Voortgang voor ${naam} volledig resetten?`)) return;
+      resetCompleted();
+      if (geoLayer) geoLayer.setStyle(styleFeature);
+      renderDoneMarkers();
+      const activeSort = document.querySelector('#rankSort button.active');
+      renderRankList(activeSort ? activeSort.dataset.sort : 'perimAsc');
     });
   }
   // Type-toggle (buurten vs wijken) in ranking-modal
