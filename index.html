@@ -1378,7 +1378,8 @@ function onEachFeature(feature, layer) {
   };
   layer.on({
     mouseover: () => {
-      layer.setStyle({ weight: 3, color: '#000', fillOpacity: 0.85 });
+      // Hover-opacity = slider-waarde + 20%, geclamped op [0, 1]
+      layer.setStyle({ weight: 3, color: '#000', fillOpacity: Math.min(1, fillOpacity + 0.2) });
       layer.bringToFront();
       info.update(data);
     },
